@@ -1,7 +1,6 @@
 <template>
   <div id="app">
     <j-header></j-header>
-    <img src="./assets/logo.png">
     <router-view></router-view>
     <j-Footer></j-Footer>
   </div>

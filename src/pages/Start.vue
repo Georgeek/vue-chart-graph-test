@@ -23,58 +23,188 @@
       <div class="error-message" v-if="showError">
         {{ errorMessage }}
       </div>
-      <p>{{ package }}</p>
-      <h1 class="title" v-if="loaded"> {{ packageName }} </h1>
-      <line-chart v-if="loaded" :chart-data="downloads" :chart-labels="labels"></line-chart>
+
       <hr>
+
+      <div v-if="loading" class="loading">
+        🔧  Building Charts ...
+        <div class="sk-cube-grid">
+          <div class="sk-cube sk-cube1"></div>
+          <div class="sk-cube sk-cube2"></div>
+          <div class="sk-cube sk-cube3"></div>
+          <div class="sk-cube sk-cube4"></div>
+          <div class="sk-cube sk-cube5"></div>
+          <div class="sk-cube sk-cube6"></div>
+          <div class="sk-cube sk-cube7"></div>
+          <div class="sk-cube sk-cube8"></div>
+          <div class="sk-cube sk-cube9"></div>
+        </div>
+      </div>
+
+      <package-info v-if="loaded" :package-name="packageName" :total-downloads="totalDownloads" :period="formattedPeriod"></package-info>
+
+      <div class="Chart__container" v-if="loaded">
+        <div class="Chart__title">
+          Загрузок за период <span> {{ formattedPeriod }} </span>
+          <hr>
+        </div>
+        <div class="Chart__content">
+          <line-chart v-if="loaded" :chart-data="downloads" :chart-labels="labels"></line-chart>
+        </div>
+      </div>
+
+      <div class="Chart__container" v-if="loaded">
+        <div class="Chart__title">
+          Загрузок в неделю
+          <hr>
+        </div>
+        <div class="Chart__content">
+          <line-chart v-if="loaded" :chart-data="downloadsWeek" :chart-labels="labelsWeek"></line-chart>
+        </div>
+      </div>
+
+      <div class="Chart__container" v-if="loaded">
+        <div class="Chart__title">
+          Загрузок в месяц
+          <hr>
+        </div>
+        <div class="Chart__content">
+          <line-chart v-if="loaded" :chart-data="downloadsMonth" :chart-labels="labelsMonth"></line-chart>
+        </div>
+      </div>
+
+      <div class="Chart__container" v-if="loaded">
+        <div class="Chart__title">
+          Загрузок в год
+          <hr>
+        </div>
+        <div class="Chart__content">
+          <line-chart v-if="loaded" :chart-data="downloadsYear" :chart-labels="labelsYear"></line-chart>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
   import axios from 'axios'
+  import moment from 'moment'
   import Datepicker from 'vuejs-datepicker'
 
   import LineChart from '@/components/LineChart'
+  import PackageInfo from '@/components/PackageInfo'
+  import { removeDuplicate, groupData } from '../utils/downloadFormatter.js'
   import { dateToYear, dateToMonth, dateToWeek, dateToDay, dateBeautify} from '../utils/dateFormat.js'
 
   export default {
     components: {
       Datepicker,
-      LineChart
+      LineChart,
+      PackageInfo
     },
     data () {
       return {
         downloads: [],
+        downloadsYear: [],
+        downloadsMonth: [],
+        downloadsWeek: [],
         package: null,
         packageName: '',
         loaded: false,
+        loading: true,
         labels: [],
+        labelsYear: [],
+        labelsMonth: [],
+        labelsWeek: [],
         showError: false,
         errorMessage: 'Введите название пакета',
         showSettings: false,
-        period: 'last-month',
         periodStart: '',
-        periodEnd: new Date()
+        periodEnd: new Date(),
+        rawData: '',
+        totalDownloads: NaN
+      }
+    },
+    mounted() {
+      if (this.$route.params.package) {
+        this.package = this.$route.params.package;
+        this.requestData();
+      }
+    },
+    computed: {
+      _endDate() {
+        return dateToDay(this.periodEnd);
+      },
+      _startDate() {
+        return dateToDay(this.periodStart);
+      },
+      period() {
+        return this.periodStart ? `${this._startDate}:${this._endDate}` : 'last-month';
+      },
+      formattedPeriod() {
+        return this.periodStart ? `${dateBeautify(this._startDate)} - ${dateBeautify(this._endDate)}` : 'last-month'
       }
     },
     methods: {
-      toggleSettings: function() {
+      toggleSettings() {
         this.showSettings = !this.showSettings;
       },
-      requestData: function () {
+      requestData() {
+        if (this.package === null 
+            || this.package === '' 
+            || this.package === 'undefined') {
+          this.showError = true;
+          return;
+        }         
+        this.resetState();
+        this.loading = true;
+
         axios.get(`https://api.npmjs.org/downloads/range/${this.period}/${this.package}`)
           .then(response => {
+            this.rawData = response.data.downloads;
             this.downloads = response.data.downloads.map(entry => entry.downloads);
             this.labels = response.data.downloads.map(entry => entry.day);
             this.packageName = response.data.package;
+            this.totalDownloads = this.downloads.reduce((total, download) => total + download);
+            this.setURL();
+            this.groupByDate();
             this.loaded = true;
-            console.log(this.downloads);
+            this.loading = false;
           })
           .catch(err => {
             this.errorMessage = err.response.data.error;
             this.showError = true;
           })
+      },
+      resetState() {
+        this.loaded = false;
+        this.showError = false;
+      },
+      setURL() {
+        history.pushState({ info: `npm-stats ${this.package}` }, this.package, `/#/${this.package}`)
+      },
+      groupByDate() {
+        this.formatYear();
+        this.formatMonth();
+        this.formatWeek();
+      },
+      formatYear() {
+        this.labelsYear = this.rawData
+          .map(entry => dateToYear(entry.day))
+          .reduce(removeDuplicate, []);
+        this.downloadsYear = groupData(this.rawData, dateToYear);
+      },
+      formatMonth() {
+        this.labelsMonth = this.rawData
+          .map(entry => dateToMonth(entry.day))
+          .reduce(removeDuplicate, []);
+        this.downloadsMonth = groupData(this.rawData, dateToMonth);
+      },
+      formatWeek() {
+        this.labelsWeek = this.rawData
+          .map(entry => dateToWeek(entry.day))
+          .reduce(removeDuplicate, []);
+        this.downloadsWeek = groupData(this.rawData, dateToWeek);
       }
     }
   }
@@ -92,7 +222,7 @@
   
   .content {
     background: #fafbfe;
-    min-height: calc(100vh-100px);
+    min-height: calc(100vh - 184.18px);
   }
 
   .container {
@@ -167,6 +297,87 @@
         margin-left: 1.25rem;
         flex: 1;
       }
+    }
+  }
+
+  .Chart__container {
+    border-radius: .25rem;
+    background-color: #fff;
+    box-shadow: 0 2px 16px 0 rgba(0,0,0,.3);
+    padding: 1.25rem 2.5rem;
+    margin: 3.125rem 0;
+  }
+
+  .Chart__title {
+    color: #4f5566;
+    margin-bottom: 2.5rem;
+    font-weight: 600;
+    font-size: 1rem;
+
+    &>span {
+      font-weight: 400;
+      color: #00c4c9;
+      font-size: 1rem;
+      margin-left: 1.55rem;
+    }
+  }
+
+  .sk-cube-grid {
+    width: 40px;
+    height: 40px;
+    margin: 100px auto;
+  }
+  .sk-cube-grid .sk-cube {
+    width: 33%;
+    height: 33%;
+    background-color: #00c4c9;
+    float: left;
+    -webkit-animation: sk-cubeGridScaleDelay 1.3s infinite ease-in-out;
+            animation: sk-cubeGridScaleDelay 1.3s infinite ease-in-out;
+  }
+  .sk-cube-grid .sk-cube1 {
+    -webkit-animation-delay: 0.2s;
+            animation-delay: 0.2s; }
+  .sk-cube-grid .sk-cube2 {
+    -webkit-animation-delay: 0.3s;
+            animation-delay: 0.3s; }
+  .sk-cube-grid .sk-cube3 {
+    -webkit-animation-delay: 0.4s;
+            animation-delay: 0.4s; }
+  .sk-cube-grid .sk-cube4 {
+    -webkit-animation-delay: 0.1s;
+            animation-delay: 0.1s; }
+  .sk-cube-grid .sk-cube5 {
+    -webkit-animation-delay: 0.2s;
+            animation-delay: 0.2s; }
+  .sk-cube-grid .sk-cube6 {
+    -webkit-animation-delay: 0.3s;
+            animation-delay: 0.3s; }
+  .sk-cube-grid .sk-cube7 {
+    -webkit-animation-delay: 0s;
+            animation-delay: 0s; }
+  .sk-cube-grid .sk-cube8 {
+    -webkit-animation-delay: 0.1s;
+            animation-delay: 0.1s; }
+  .sk-cube-grid .sk-cube9 {
+    -webkit-animation-delay: 0.2s;
+            animation-delay: 0.2s; }
+  @-webkit-keyframes sk-cubeGridScaleDelay {
+    0%, 70%, 100% {
+      -webkit-transform: scale3D(1, 1, 1);
+              transform: scale3D(1, 1, 1);
+    } 35% {
+      -webkit-transform: scale3D(0, 0, 1);
+              transform: scale3D(0, 0, 1);
+    }
+  }
+  @keyframes sk-cubeGridScaleDelay {
+    0%, 70%, 100% {
+      -webkit-transform: scale3D(1, 1, 1);
+              transform: scale3D(1, 1, 1);
+    } 35% {
+      -webkit-transform: scale3D(0, 0, 1);
+              transform: scale3D(0, 0, 1);
     }
   }
 </style>
